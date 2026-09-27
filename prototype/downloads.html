@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<!-- PROTOTYPE. Throwaway. Three variants of the buyer's download list, switchable via ?variant=. The store has no page yet. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PROTOTYPE — downloads</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-neutral-100 text-neutral-900">
+  <div id="app" class="pb-24"></div>
+  <pre id="state" class="fixed right-3 top-3 z-40 max-h-[36vh] w-64 overflow-auto rounded bg-black p-3 text-[11px] leading-snug text-green-300"></pre>
+  <div id="switcher" class="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black px-2 py-1 text-sm text-white shadow-lg"></div>
+  <script>
+    // A purchase stays on the account. "granted" means the file is still granted, so the download is available.
+    // "inCatalog" false means the product left the catalog. The purchase is still shown.
+    const purchases = [
+      { id: "u1", name: "Starter App", paid: "Free", date: "3 Sep 2026", categories: ["Apps"], granted: true, inCatalog: true, description: "A free starter project." },
+      { id: "u2", name: "Aurora Theme", paid: "$29", date: "12 Aug 2026", categories: ["Themes"], granted: true, inCatalog: true, description: "A dark theme for an editor. One compressed folder." },
+      { id: "u3", name: "Field Notes", paid: "$8", date: "20 Jul 2026", categories: ["Images"], granted: true, inCatalog: false, description: "A folder of reference photographs." },
+      { id: "u4", name: "Dashboard Kit", paid: "$56", date: "14 Jun 2026", categories: ["Themes", "Apps"], granted: false, inCatalog: true, description: "A theme and an app starter, sold together." },
+      { id: "u5", name: "North Icon Pack", paid: "$12", date: "2 Jun 2026", categories: ["Icons"], granted: false, inCatalog: false, description: "A set of interface icons in one folder." }
+    ];
+    const variants = [
+      { key: "A", name: "Ledger" },
+      { key: "B", name: "Shelf" },
+      { key: "C", name: "Focus" }
+    ];
+    let selectedId = purchases[0].id;
+    let issued = {}; // purchase id -> fake expiring link
+
+    const currentKey = () => {
+      const v = (new URLSearchParams(location.search).get("variant") || "A").toUpperCase();
+      return variants.some((x) => x.key === v) ? v : "A";
+    };
+    function setVariant(key) {
+      const next = new URLSearchParams(location.search);
+      next.set("variant", key);
+      history.replaceState(null, "", "?" + next.toString());
+      render();
+    }
+    function cycle(dir) {
+      const i = variants.findIndex((v) => v.key === currentKey());
+      setVariant(variants[(i + dir + variants.length) % variants.length].key);
+    }
+    const byId = (id) => purchases.find((p) => p.id === id);
+
+    function downloadControl(p, size) {
+      const big = size === "big";
+      if (!p.granted) {
+        return `<span class="${big ? "text-base" : "text-sm"} text-neutral-500">Download not available</span>`;
+      }
+      if (issued[p.id]) {
+        return `<span class="${big ? "text-base" : "text-sm"}">Downloading… <span class="text-neutral-500">link expires in ${issued[p.id]}</span></span>`;
+      }
+      return `<button data-download="${p.id}" class="rounded bg-black ${big ? "px-5 py-2.5" : "px-3 py-1.5 text-sm"} text-white">Download</button>`;
+    }
+    const catalogNote = (p) => p.inCatalog
+      ? `<a href="#" class="text-sm text-neutral-500 underline">View in catalog</a>`
+      : `<span class="text-sm text-neutral-500">No longer in the catalog</span>`;
+
+    // A. Ledger: one row per purchase, newest first, everything on one line.
+    function variantA() {
+      const rows = purchases.map((p) => `
+        <div class="grid grid-cols-[7rem_1fr_5rem_12rem] items-center gap-4 border-b bg-white px-4 py-4 ${p.granted ? "" : "text-neutral-400"}">
+          <span class="text-sm text-neutral-500">${p.date}</span>
+          <div>
+            <div class="font-medium ${p.granted ? "" : "text-neutral-500"}">${p.name}</div>
+            <div class="text-sm text-neutral-500">${p.categories.join(", ")}${p.inCatalog ? "" : " · No longer in the catalog"}</div>
+          </div>
+          <span class="text-right text-sm">${p.paid}</span>
+          <div class="text-right">${downloadControl(p)}</div>
+        </div>`).join("");
+      return `
+        <header class="border-b bg-white px-6 py-4"><p class="text-xs uppercase tracking-wide text-neutral-500">Prototype A · Ledger</p><h1 class="text-xl font-semibold">Your purchases</h1></header>
+        <main class="mx-auto max-w-4xl px-6 py-8">
+          <div class="grid grid-cols-[7rem_1fr_5rem_12rem] gap-4 px-4 pb-2 text-xs uppercase tracking-wide text-neutral-500"><span>Obtained</span><span>Product</span><span class="text-right">Paid</span><span class="text-right">File</span></div>
+          <div class="rounded border">${rows}</div>
+        </main>`;
+    }
+
+    // B. Shelf: same cards as the catalog. Available files first, then a separate section for the rest.
+    function variantB() {
+      const card = (p) => `
+        <div class="rounded border bg-white p-4 ${p.granted ? "" : "opacity-60"}">
+          <div class="mb-3 h-28 rounded bg-neutral-200"></div>
+          <div class="font-medium">${p.name}</div>
+          <div class="text-sm text-neutral-500">Obtained ${p.date} · ${p.paid}</div>
+          <div class="mt-3 flex items-center justify-between">${downloadControl(p)}${catalogNote(p)}</div>
+        </div>`;
+      const available = purchases.filter((p) => p.granted).map(card).join("");
+      const unavailable = purchases.filter((p) => !p.granted).map(card).join("");
+      return `
+        <header class="border-b bg-white px-6 py-4"><p class="text-xs uppercase tracking-wide text-neutral-500">Prototype B · Shelf</p><h1 class="text-xl font-semibold">Your files</h1></header>
+        <main class="mx-auto max-w-5xl px-6 py-8">
+          <div class="grid grid-cols-3 gap-4">${available}</div>
+          <h2 class="mt-12 text-sm uppercase tracking-wide text-neutral-500">Purchases without a download</h2>
+          <p class="mt-1 text-sm text-neutral-500">These stay on your account. The file is no longer granted.</p>
+          <div class="mt-4 grid grid-cols-3 gap-4">${unavailable}</div>
+        </main>`;
+    }
+
+    // C. Focus: a narrow list of purchases on the left, one purchase in full on the right.
+    function variantC() {
+      const p = byId(selectedId);
+      const list = purchases.map((item) => `
+        <button data-select="${item.id}" class="flex w-full items-center justify-between border-b px-4 py-3 text-left ${item.id === selectedId ? "bg-black text-white" : "bg-white"}">
+          <span class="${item.granted ? "" : item.id === selectedId ? "text-neutral-300" : "text-neutral-400"}">${item.name}</span>
+          <span class="text-xs ${item.id === selectedId ? "text-neutral-300" : "text-neutral-500"}">${item.granted ? "" : "no file"}</span>
+        </button>`).join("");
+      return `
+        <header class="border-b bg-white px-6 py-4"><p class="text-xs uppercase tracking-wide text-neutral-500">Prototype C · Focus</p><h1 class="text-xl font-semibold">Your purchases</h1></header>
+        <main class="mx-auto grid max-w-5xl grid-cols-[16rem_1fr] gap-8 px-6 py-8">
+          <div class="self-start rounded border overflow-hidden">${list}</div>
+          <section class="rounded border bg-white p-8">
+            <div class="h-48 rounded bg-neutral-200"></div>
+            <h2 class="mt-6 text-3xl font-semibold">${p.name}</h2>
+            <p class="mt-1 text-neutral-500">${p.categories.join(" · ")}</p>
+            <p class="mt-4 max-w-xl">${p.description}</p>
+            <dl class="mt-6 grid max-w-sm grid-cols-2 gap-y-1 text-sm">
+              <dt class="text-neutral-500">Obtained</dt><dd>${p.date}</dd>
+              <dt class="text-neutral-500">Paid</dt><dd>${p.paid}</dd>
+              <dt class="text-neutral-500">Catalog</dt><dd>${p.inCatalog ? "Still offered" : "No longer offered"}</dd>
+            </dl>
+            <div class="mt-8">${downloadControl(p, "big")}</div>
+            ${p.granted ? `<p class="mt-3 text-sm text-neutral-500">The link is personal and expires. Come back here for a fresh one.</p>` : `<p class="mt-3 text-sm text-neutral-500">Your purchase stays on your account.</p>`}
+          </section>
+        </main>`;
+    }
+
+    function render() {
+      const key = currentKey();
+      document.getElementById("app").innerHTML = key === "B" ? variantB() : key === "C" ? variantC() : variantA();
+      document.getElementById("state").textContent = JSON.stringify({
+        variant: key,
+        selected: key === "C" ? byId(selectedId).name : null,
+        issued: Object.fromEntries(Object.keys(issued).map((id) => [byId(id).name, issued[id]])),
+        purchases: purchases.map((p) => `${p.name}: ${p.granted ? "granted" : "not granted"}${p.inCatalog ? "" : ", left catalog"}`)
+      }, null, 2);
+      const meta = variants.find((v) => v.key === key);
+      document.getElementById("switcher").innerHTML = `
+        <button id="prev" class="rounded-full px-3 py-1" aria-label="Previous variant">←</button>
+        <span class="px-2">${meta.key} (${meta.name})</span>
+        <button id="next" class="rounded-full px-3 py-1" aria-label="Next variant">→</button>`;
+      document.getElementById("prev").onclick = () => cycle(-1);
+      document.getElementById("next").onclick = () => cycle(1);
+    }
+
+    document.body.addEventListener("click", (event) => {
+      const t = event.target.closest("[data-download],[data-select]");
+      if (!t) return;
+      if (t.dataset.download) issued[t.dataset.download] = "1 hour";
+      if (t.dataset.select) selectedId = t.dataset.select;
+      render();
+    });
+    document.addEventListener("keydown", (event) => {
+      const tag = document.activeElement?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (event.key === "ArrowLeft") cycle(-1);
+      if (event.key === "ArrowRight") cycle(1);
+    });
+    render();
+  </script>
+</body>
+</html>
